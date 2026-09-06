@@ -46,6 +46,15 @@ local Config = {
     AimDeadzone = 0,
     AimTargetPart = "Head",
 
+    ESPBoxes = true,
+    ESPTracers = true,
+    ESPNames = true,
+    ESPDistance = true,
+    ESPHealth = true,
+    ESPTeamColor = true,
+    ESPMaxDistance = 500,
+    ESPUpdateRate = 0.08,
+
     AutoSprint = false,
     FOVKick = false,
     FOVKickAmount = 8,
@@ -293,9 +302,16 @@ Toggle(Pages.Combat,"Smooth Aim","Moves the camera toward the target instead of 
 Slider(Pages.Combat,"Aim Smoothness","Higher values feel faster and more responsive.",1,20,1,function() return Config.AimSmoothness end,function(v) Config.AimSmoothness=v end)
 Info(Pages.Combat,"Target validation","Requires a live, visible and on-screen player.",C.Good)
 
-Section(Pages.Visuals,"PLAYER ESP","Clean visual highlighting")
-Toggle(Pages.Visuals,"ESP","Highlights other players with AlwaysOnTop outlines.",function() return Config.ESP end,function(v) Config.ESP=v end)
-Info(Pages.Visuals,"Performance","ESP updates are throttled to reduce unnecessary frame work.",C.Accent)
+Section(Pages.Visuals,"PLAYER ESP","Complete local player overlay system")
+Toggle(Pages.Visuals,"ESP","Master switch for the local ESP system.",function() return Config.ESP end,function(v) Config.ESP=v end)
+Toggle(Pages.Visuals,"Boxes","Draw a box around players.",function() return Config.ESPBoxes end,function(v) Config.ESPBoxes=v end)
+Toggle(Pages.Visuals,"Tracers","Draw lines from the bottom of the screen.",function() return Config.ESPTracers end,function(v) Config.ESPTracers=v end)
+Toggle(Pages.Visuals,"Names","Show player names.",function() return Config.ESPNames end,function(v) Config.ESPNames=v end)
+Toggle(Pages.Visuals,"Distance","Show distance in studs.",function() return Config.ESPDistance end,function(v) Config.ESPDistance=v end)
+Toggle(Pages.Visuals,"Health","Show HP bar and values.",function() return Config.ESPHealth end,function(v) Config.ESPHealth=v end)
+Toggle(Pages.Visuals,"Team Colors","Use team color when available.",function() return Config.ESPTeamColor end,function(v) Config.ESPTeamColor=v end)
+Slider(Pages.Visuals,"Max Distance","Do not render ESP beyond this distance.",50,1000,10,function() return Config.ESPMaxDistance end,function(v) Config.ESPMaxDistance=v end)
+Info(Pages.Visuals,"Performance","ESP is throttled and only creates overlays for active targets.",C.Accent)
 
 Section(Pages.Movement,"MOVEMENT","Movement and collision controls")
 Toggle(Pages.Movement,"Speed","Changes Humanoid WalkSpeed while enabled.",function() return Config.Speed end,function(v) Config.Speed=v end)
@@ -708,20 +724,117 @@ local function Aimbot(dt)
     end
 end
 
-local function RemoveESP(p)
-    if espObjects[p] then espObjects[p]:Destroy(); espObjects[p]=nil end
+local function GetESPColor(player)
+    if Config.ESPTeamColor and player.Team and player.Team.TeamColor then
+        return player.Team.TeamColor.Color
+    end
+    return C.Accent
 end
+
+local function RemoveESP(player)
+    local info=espObjects[player]
+    if not info then return end
+    if info.folder then info.folder:Destroy() end
+    if info.tracer then info.tracer:Destroy() end
+    espObjects[player]=nil
+end
+
+local function CreateESP(player)
+    if player==LocalPlayer or not player.Character then return end
+    RemoveESP(player)
+    local char=player.Character
+    local head=char:FindFirstChild('Head')
+    local root=char:FindFirstChild('HumanoidRootPart')
+    if not head or not root then return end
+    local folder=New('Folder',{Name='ESP_'..player.UserId},espFolder)
+    local color=GetESPColor(player)
+    local highlight=New('Highlight',{Name='Highlight',Adornee=char,DepthMode=Enum.HighlightDepthMode.AlwaysOnTop,FillTransparency=.88,OutlineTransparency=0,FillColor=color,OutlineColor=color},folder)
+    local infoGui=New('BillboardGui',{Name='Info',Adornee=head,Size=UDim2.fromOffset(170,62),StudsOffset=Vector3.new(0,3.4,0),AlwaysOnTop=true,ResetOnSpawn=false},folder)
+    local name=New('TextLabel',{Size=UDim2.new(1,0,0,19),BackgroundTransparency=1,Text=player.DisplayName,TextColor3=Color3.new(1,1,1),TextStrokeTransparency=.45,TextSize=12,Font=Enum.Font.GothamBold},infoGui)
+    local distance=New('TextLabel',{Size=UDim2.new(1,0,0,16),Position=UDim2.fromOffset(0,18),BackgroundTransparency=1,TextColor3=C.Sub,TextStrokeTransparency=.6,TextSize=9,Font=Enum.Font.Gotham},infoGui)
+    local hpText=New('TextLabel',{Size=UDim2.new(1,0,0,15),Position=UDim2.fromOffset(0,34),BackgroundTransparency=1,TextColor3=Color3.new(1,1,1),TextStrokeTransparency=.6,TextSize=9,Font=Enum.Font.GothamBold},infoGui)
+    local hpBack=New('Frame',{Size=UDim2.fromOffset(86,5),Position=UDim2.new(.5,-43,1,-5),BackgroundColor3=Color3.fromRGB(35,35,40),BorderSizePixel=0},infoGui); Corner(hpBack,3)
+    local hpFill=New('Frame',{Size=UDim2.new(1,0,1,0),BackgroundColor3=C.Good,BorderSizePixel=0},hpBack); Corner(hpFill,3)
+    local boxGui=New('BillboardGui',{Name='Box',Adornee=root,Size=UDim2.fromOffset(78,112),AlwaysOnTop=true,ResetOnSpawn=false},folder)
+    local segments={}
+    for _,s in ipairs({
+        {UDim2.new(0,0,0,0),UDim2.new(.32,0,0,2)}, {UDim2.new(0,0,0,0),UDim2.new(0,2,.32,0)},
+        {UDim2.new(.68,0,0,0),UDim2.new(.32,0,0,2)}, {UDim2.new(1,-2,0,0),UDim2.new(0,2,.32,0)},
+        {UDim2.new(0,0,.68,0),UDim2.new(.32,0,0,2)}, {UDim2.new(0,0,.68,0),UDim2.new(0,2,.32,0)},
+        {UDim2.new(.68,0,.68,0),UDim2.new(.32,0,0,2)}, {UDim2.new(1,-2,.68,0),UDim2.new(0,2,.32,0)},
+    }) do
+        table.insert(segments,New('Frame',{Position=s[1],Size=s[2],BackgroundColor3=color,BorderSizePixel=0},boxGui))
+    end
+    local tracer=New('Frame',{Name='Tracer',AnchorPoint=Vector2.new(.5,.5),BackgroundColor3=color,BorderSizePixel=0,Visible=false,Size=UDim2.fromOffset(2,40)},Gui)
+    espObjects[player]={folder=folder,highlight=highlight,infoGui=infoGui,name=name,distance=distance,hpText=hpText,hpBack=hpBack,hpFill=hpFill,boxGui=boxGui,segments=segments,tracer=tracer}
+end
+
+local function UpdateTracer(tracer,point)
+    local cam=workspace.CurrentCamera
+    if not cam or not tracer then return end
+    local from=Vector2.new(cam.ViewportSize.X*.5,cam.ViewportSize.Y)
+    local to=Vector2.new(point.X,point.Y)
+    local d=to-from
+    local len=d.Magnitude
+    if len<3 then tracer.Visible=false return end
+    tracer.Visible=true
+    tracer.Position=UDim2.fromOffset((from.X+to.X)*.5,(from.Y+to.Y)*.5)
+    tracer.Size=UDim2.fromOffset(2,len)
+    tracer.Rotation=math.deg(math.atan2(d.Y,d.X))+90
+end
+
 local function UpdateESP()
-    if not Config.ESP then for p in pairs(espObjects) do RemoveESP(p) end return end
-    for _,p in ipairs(Players:GetPlayers()) do
-        if p~=LocalPlayer and p.Character then
-            if not espObjects[p] then
-                local h=New("Highlight",{Name="FPSHighlight",Adornee=p.Character,DepthMode=Enum.HighlightDepthMode.AlwaysOnTop,FillTransparency=.8,OutlineTransparency=0,FillColor=C.Accent,OutlineColor=Color3.new(1,1,1)},espFolder)
-                espObjects[p]=h
-            else espObjects[p].Adornee=p.Character end
+    if not Config.ESP then
+        for plr in pairs(espObjects) do RemoveESP(plr) end
+        return
+    end
+    local cam=workspace.CurrentCamera
+    local mine=Character(); local myRoot=mine and mine:FindFirstChild('HumanoidRootPart')
+    if not cam or not myRoot then return end
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr~=LocalPlayer and plr.Character then
+            local char=plr.Character
+            local hum=char:FindFirstChildOfClass('Humanoid')
+            local root=char:FindFirstChild('HumanoidRootPart')
+            local head=char:FindFirstChild('Head')
+            if hum and root and head and hum.Health>0 then
+                local dist=(root.Position-myRoot.Position).Magnitude
+                if dist<=Config.ESPMaxDistance then
+                    if not espObjects[plr] then CreateESP(plr) end
+                    local e=espObjects[plr]
+                    local color=GetESPColor(plr)
+                    e.highlight.FillColor=color; e.highlight.OutlineColor=color
+                    e.boxGui.Enabled=Config.ESPBoxes
+                    e.name.Visible=Config.ESPNames
+                    e.distance.Visible=Config.ESPDistance
+                    e.hpText.Visible=Config.ESPHealth
+                    e.hpBack.Visible=Config.ESPHealth
+                    for _,seg in ipairs(e.segments) do seg.BackgroundColor3=color end
+                    if Config.ESPNames then e.name.Text=plr.DisplayName end
+                    if Config.ESPDistance then e.distance.Text=string.format('%d studs',math.floor(dist+.5)) end
+                    if Config.ESPHealth then
+                        local ratio=math.clamp(hum.Health/math.max(hum.MaxHealth,1),0,1)
+                        e.hpText.Text=string.format('HP  %d / %d',math.floor(hum.Health+.5),math.floor(hum.MaxHealth+.5))
+                        e.hpFill.Size=UDim2.new(ratio,0,1,0)
+                        e.hpFill.BackgroundColor3=Color3.new(1-ratio,ratio,0)
+                    end
+                    local point,onScreen=cam:WorldToViewportPoint(head.Position)
+                    if Config.ESPTracers and onScreen and point.Z>0 then
+                        e.tracer.BackgroundColor3=color
+                        UpdateTracer(e.tracer,point)
+                    else
+                        e.tracer.Visible=false
+                    end
+                else
+                    RemoveESP(plr)
+                end
+            else
+                RemoveESP(plr)
+            end
         end
     end
 end
+
 Players.PlayerRemoving:Connect(RemoveESP)
 LocalPlayer.CharacterAdded:Connect(function()
     savedSpeed=nil; table.clear(savedCollision); task.wait(.5)
@@ -785,7 +898,7 @@ RunService.RenderStepped:Connect(function(dt)
     end
 
     if Config.Aimbot then Aimbot(dt) end
-    espT+=dt; if espT>=.12 then espT=0; if Config.ESP or next(espObjects) then UpdateESP() end end
+    espT+=dt; if espT>=Config.ESPUpdateRate then espT=0; if Config.ESP or next(espObjects) then UpdateESP() end end
     speedT+=dt; if speedT>=.08 then speedT=0; if Config.Speed or savedSpeed~=nil then UpdateSpeed() end end
     noclipT+=dt; if noclipT>=.05 then noclipT=0; if Config.NoClip or next(savedCollision) then UpdateNoClip() end end
     invisT+=dt; if invisT>=.20 then invisT=0; if Config.Invisibility then Invisibility(true) end end
